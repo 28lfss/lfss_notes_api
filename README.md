@@ -51,6 +51,8 @@ lfss_notes_api/
 
 ## Architecture
 
+For a detailed description of the layers, dependency rule, and the **complete request-to-database workflow** for Create User, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ### Domain Layer (`domain/`)
 
 * **Purpose**: Contains core business logic and domain entities. It is independent of frameworks or external systems.
