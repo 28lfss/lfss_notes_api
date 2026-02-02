@@ -1,5 +1,6 @@
 package lfssa.lfss_notes_api.presentation.controller;
 
+import lfssa.lfss_notes_api.application.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -10,7 +11,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Returns 400 with validation errors when request body fails @Valid.
+ * Global exception handling: validation (400), user not found (404).
  */
 @RestControllerAdvice
 public class ValidationExceptionHandler {
@@ -25,5 +26,12 @@ public class ValidationExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", "Validation failed", "errors", errors));
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleUserNotFound(UserNotFoundException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(Map.of("message", ex.getMessage()));
     }
 }

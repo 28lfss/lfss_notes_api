@@ -1,16 +1,20 @@
 package lfssa.lfss_notes_api.infrastructure.persistence.adapter;
 
+import lfssa.lfss_notes_api.application.port.out.LoadUserPort;
 import lfssa.lfss_notes_api.application.port.out.SaveUserPort;
 import lfssa.lfss_notes_api.domain.entity.User;
 import lfssa.lfss_notes_api.infrastructure.persistence.entity.UserJpaEntity;
 import lfssa.lfss_notes_api.infrastructure.persistence.repository.UserJpaRepository;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+import java.util.UUID;
+
 /**
- * Adapter: implements outbound port and maps between domain and JPA entities.
+ * Adapter: implements outbound ports and maps between domain and JPA entities.
  */
 @Component
-public class UserPersistenceAdapter implements SaveUserPort {
+public class UserPersistenceAdapter implements SaveUserPort, LoadUserPort {
 
     private final UserJpaRepository jpaRepository;
 
@@ -23,6 +27,11 @@ public class UserPersistenceAdapter implements SaveUserPort {
         UserJpaEntity entity = toJpaEntity(user);
         UserJpaEntity saved = jpaRepository.save(entity);
         return toDomain(saved);
+    }
+
+    @Override
+    public Optional<User> findById(UUID id) {
+        return jpaRepository.findById(id).map(UserPersistenceAdapter::toDomain);
     }
 
     private static UserJpaEntity toJpaEntity(User user) {

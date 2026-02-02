@@ -51,7 +51,7 @@ The application is structured in **four concentric layers**. Dependencies point 
 | **Domain** | Core business concepts; no frameworks. | `User` entity | Nothing |
 | **Application** | Use cases and contracts (ports). Orchestrates domain and outbound adapters. | `CreateUserUseCase`, `SaveUserPort`, `CreateUserCommand`, `CreateUserService` | Domain |
 | **Infrastructure** | Implements outbound ports; talks to DB, external APIs, etc. | `UserJpaEntity`, `UserJpaRepository`, `UserPersistenceAdapter` | Application (ports), Domain |
-| **Presentation** | HTTP entrypoint; validation; maps HTTP ↔ application. | `UserController`, `CreateUserRequest`, `UserResponse`, `ValidationExceptionHandler` | Application (use cases), Domain (for response mapping) |
+| **Presentation** | HTTP entrypoint; validation; maps HTTP ↔ application. | `UserController`, `CreateUserRequest`, `UserResponse`, `ValidationExceptionHandler` | Application (use cases, application DTOs like `UserOutput`) only; **never domain** |
 
 - **Ports** = interfaces at the application boundary. **Inbound ports** (e.g. `CreateUserUseCase`) are called by the presentation layer. **Outbound ports** (e.g. `SaveUserPort`) are implemented by the infrastructure layer.
 - **Adapters** = implementations of ports. The controller is an inbound adapter (HTTP → use case); the persistence adapter is an outbound adapter (use case → database).
@@ -63,9 +63,9 @@ The application is structured in **four concentric layers**. Dependencies point 
 - **Domain** does not depend on any other layer.
 - **Application** depends only on **domain**; it defines **ports** (interfaces) for persistence and other side effects.
 - **Infrastructure** implements **outbound ports** and uses **domain** entities when fulfilling those contracts; it does not drive use cases.
-- **Presentation** calls **inbound ports** (use cases) and converts HTTP request/response to **application** DTOs and **domain**-based responses.
+- **Presentation** calls **inbound ports** (use cases) and maps only **application** DTOs (e.g. `UserOutput`) to/from HTTP; it **never** references domain entities.
 
-So: **request** enters via presentation → application (use case) → domain; **persistence** is invoked by the use case via an outbound port implemented by infrastructure. The DB is never referenced from domain or application, only from infrastructure.
+So: **request** enters via presentation → application (use case) → domain; the use case returns an **application output DTO** (e.g. `UserOutput`); the controller maps that to the presentation DTO (`UserResponse`). **Persistence** is invoked by the use case via an outbound port implemented by infrastructure. The DB is never referenced from domain or application, only from infrastructure.
 
 ---
 
@@ -89,7 +89,8 @@ End-to-end path for **POST /api/users** from the HTTP request to the database.
 4. **Application – Use case**  
    - `CreateUserService` (implements `CreateUserUseCase`):  
      - Builds a **domain** `User` with a new `UUID`, `command.name()`, and `command.password()`.  
-     - Calls **outbound port** `SaveUserPort.save(user)` to persist.
+     - Calls **outbound port** `SaveUserPort.save(user)` to persist.  
+     - Maps the saved **domain** `User` to **application output** `UserOutput(id, name)` and returns it (presentation never sees the domain entity).
 
 5. **Application → Infrastructure**  
    - `SaveUserPort` is implemented by `UserPersistenceAdapter` (infrastructure).  
@@ -105,8 +106,8 @@ End-to-end path for **POST /api/users** from the HTTP request to the database.
    - Spring Data JPA / Hibernate issues `INSERT` into the `users` table (id UUID, name VARCHAR(32), password TEXT), as defined by `UserJpaEntity` and your schema (e.g. `database/init.sql`).
 
 8. **Response path**  
-   - Use case returns the saved **domain** `User` to the controller.  
-   - Controller maps it to `UserResponse(id, name)` (no password) and returns **201 Created** with that JSON.
+   - Use case maps the saved **domain** `User` to **application output** `UserOutput(id, name)` and returns it.  
+   - Controller receives `UserOutput` (no domain dependency), maps it to `UserResponse(id, name)` and returns **201 Created** with that JSON.
 
 ### Flow diagram (Create User)
 
@@ -119,7 +120,8 @@ Client
 │  UserController.createUser(CreateUserRequest)                     │
 │    @Valid → ValidationExceptionHandler on failure (400)           │
 │    → CreateUserCommand(name, password)                            │
-│    → createUserUseCase.create(command)                            │
+│    → createUserUseCase.create(command) → UserOutput               │
+│    → toResponse(UserOutput) → UserResponse                        │
 └──────────────────────────────────────────────────────────────────┘
   │
   ▼
@@ -127,7 +129,8 @@ Client
 │ APPLICATION                                                       │
 │  CreateUserService.create(CreateUserCommand)                       │
 │    → new User(UUID.randomUUID(), name, password)   [DOMAIN]       │
-│    → saveUserPort.save(user)                                      │
+│    → saveUserPort.save(user) → User                               │
+│    → new UserOutput(saved.getId(), saved.getName())  [return]     │
 └──────────────────────────────────────────────────────────────────┘
   │
   ▼
@@ -156,13 +159,13 @@ Client
 |-------|------|------|
 | HTTP in | `CreateUserRequest` | Presentation: JSON binding + validation (name, password). |
 | Controller → Use case | `CreateUserCommand` | Application: input for the use case (name, password). |
-| Use case internal | `User` | Domain: entity with id, name, password. |
+| Use case internal | `User` | Domain: entity with id, name, password (never leaves application layer). |
 | Use case → Adapter | `User` | Passed to `SaveUserPort.save(User)`. |
 | Adapter ↔ JPA | `UserJpaEntity` | Infrastructure: table mapping (id, name, password). |
-| Use case → Controller | `User` | Domain entity returned from `save()`. |
-| HTTP out | `UserResponse` | Presentation: JSON with id and name only (password never exposed). |
+| Use case → Controller | `UserOutput` | Application output DTO (id, name); presentation never sees domain. |
+| HTTP out | `UserResponse` | Presentation: JSON with id and name only (mapped from `UserOutput`). |
 
-So the **workflow** is: **Request DTO → Command → Domain Entity → (optional) JPA Entity → Domain Entity → Response DTO**. The domain entity is the core object that crosses the application boundary in both directions for this flow.
+So the **workflow** is: **Request DTO → Command → Domain Entity → (optional) JPA Entity → Domain Entity → UserOutput (application) → UserResponse (presentation)**. The **presentation layer depends only on application DTOs** (`CreateUserCommand`, `UserOutput`), not on domain entities.
 
 ---
 
@@ -180,7 +183,8 @@ lfssa.lfss_notes_api
 │   │   └── out
 │   │       └── SaveUserPort
 │   ├── dto
-│   │   └── CreateUserCommand
+│   │   ├── CreateUserCommand
+│   │   └── UserOutput
 │   └── usecase
 │       └── CreateUserService
 ├── infrastructure
